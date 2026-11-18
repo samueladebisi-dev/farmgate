@@ -1,6 +1,6 @@
-# Argus Payments
+# Farmgate
 
-**TEST NETWORK, PLAY MONEY ONLY.** Nothing in this project moves real money.
+**Farmgate** is a cooperative payment prototype. **TEST NETWORK, PLAY MONEY ONLY.** Nothing in this project moves real money.
 
 ## What it does, in plain English
 
