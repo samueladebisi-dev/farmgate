@@ -1,0 +1,11 @@
+private.key
+*.key
+.env
+.env.local
+*.db
+*.db-*
+node_modules
+.next
+next-env.d.ts
+data/
+tsconfig.tsbuildinfo
