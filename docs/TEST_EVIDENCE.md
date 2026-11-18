@@ -2,47 +2,57 @@
 
 How to read this file:
 - **Automated rows** name the test file and test. They were last run together with `npm run verify` on **2026-11-18** and passed. Re-run `npm run verify` and update the date and result if anything changes.
-- **Live rows** hold provider resource ids from the Interledger test network. A cell reading `TO FILL AFTER LIVE RUN` has not been done yet. Blank means not measured. Nothing in a blank has been assumed.
+- **Live rows** hold provider resource ids and amounts read from the app's local database (which stores what the provider reported). A cell reading `TO FILL AFTER LIVE RUN` or `NOT FOUND` has not been done or was not found. Blank means not measured. Nothing in a blank has been assumed.
 - All money is play money on the test network.
 
-## A. Live evidence already held
+## A. Live buyer payment (two sets of ids)
 
-### A1. Buyer payment you supplied
+### A1. Buyer payment from the earlier proof in `spike/` (ids supplied by the project owner)
 
 | Feature | Test or provider resource ID | Date | Result |
 |---|---|---|---|
-| Buyer-to-cooperative transfer, incoming payment | `7d63d740-348e-4f0a-9d10-4870b5bd3b7c` | TO CONFIRM | Supplied by the project owner |
-| Same transfer, quote id and outgoing payment id (the provider used the same id for both) | `01b337c3-7182-4240-9bd8-5f9472896fb9` | TO CONFIRM | Supplied by the project owner |
+| Buyer-to-cooperative transfer, incoming payment | `7d63d740-348e-4f0a-9d10-4870b5bd3b7c` | TO CONFIRM | Supplied by the project owner (spike run). Not in the app's database. |
+| Same transfer, quote id and outgoing payment id (the provider used the same id for both) | `01b337c3-7182-4240-9bd8-5f9472896fb9` | TO CONFIRM | Supplied by the project owner (spike run). Not in the app's database. |
 | Amounts | 10.03 EUR debited from the buyer for 10.00 USD received by the cooperative | TO CONFIRM | Supplied by the project owner |
 
-**Note to check before showing these.** When this file was written, neither of those two ids appeared in the app's local database. The app's own live buyer payment (A2 below) has different ids. Both can be genuine (for example, one from the earlier proof in `spike/` and one from the app), but confirm which run each id belongs to before you present them as the same event.
-
-### A2. Buyer payment made through the app (read from the local database)
+### A2. Buyer payment made through the app, order PO-0124 (read from the local database on 2026-11-18)
 
 | Feature | Test or provider resource ID | Date | Result |
 |---|---|---|---|
 | Incoming payment at the cooperative | `49170184-a823-4193-9bdf-10fe6ad3e1f6` | 2026-11-18 | Provider reported completed, received 10.00 USD |
-| Quote id and outgoing payment id (same id) | `a861ffd8-5aaa-47e2-83ee-4600e2fa22bc` | 2026-11-18 | Quoted debit 10.03 EUR; provider reported sent 10.03 EUR |
-| Order PO-0124 | status RECEIVED, confirmed received 10.00 USD | 2026-11-18 | Set only after the provider showed the incoming payment complete with the exact amount |
+| Quote id and outgoing payment id (same id) | `a861ffd8-5aaa-47e2-83ee-4600e2fa22bc` | 2026-11-18 | Quoted debit 10.03 EUR; provider reported sent 10.03 EUR; state CONFIRMED |
+| Order PO-0124 became RECEIVED | audit event 11 (ORDER_RECEIVED) | 2026-11-18 04:28:26 UTC | Confirmed received 10.00 USD, set only after the provider showed the incoming payment complete with the exact amount |
 
-These are ids inside the provider's resource URLs (`.../incoming-payments/<id>`, `.../quotes/<id>`, `.../outgoing-payments/<id>`). Source: the app's local database and audit log, read on 2026-11-18. The audit log timestamps are about 04:27 to 04:28 UTC.
+Ids are the last part of the provider's resource URLs (`.../incoming-payments/<id>`, `.../quotes/<id>`, `.../outgoing-payments/<id>`).
 
-## B. Live evidence still to collect
+## B. Live evidence: cooperative payouts (order PO-0124, read from the local database on 2026-11-18)
+
+All amounts are USD, play money, 2 decimal places. "Receive" is the amount the recipient's incoming payment expected; "provider received" and "sent" are what the provider reported back.
+
+| Recipient | Incoming payment id | Quote id | Outgoing payment id (same as quote id) | Quoted debit | Receive | Provider received | Provider sent | State | Last updated (UTC) |
+|---|---|---|---|---|---|---|---|---|---|
+| Farmer A | `c72bda0d-5d5c-4575-b212-104311ab7bd0` | `5121e28e-932e-4d1b-a2a2-778a2374cea7` | `5121e28e-932e-4d1b-a2a2-778a2374cea7` | 3.70 | 3.70 | 3.70 (completed) | 3.70 | CONFIRMED | 2026-11-18 15:11:07 |
+| Farmer B | `18dba5a3-fc64-4b40-b393-e34f68d62d5a` | `fb1be147-efb0-4a69-86d8-08251563af9b` | `fb1be147-efb0-4a69-86d8-08251563af9b` | 3.20 | 3.20 | 3.20 (completed) | 3.20 | CONFIRMED | 2026-11-18 15:11:11 |
+| Farmer C | `46ac0ea2-0c89-4c1f-8309-8e92b6ab36f0` | `b3070a2f-337d-4263-84ab-3a6fb84db048` | `b3070a2f-337d-4263-84ab-3a6fb84db048` | 2.30 | 2.30 | 2.30 (completed) | 2.30 | CONFIRMED | 2026-11-18 15:11:14 |
+| Logistics | `72d289cb-7f52-44e4-8b8e-36e06b897d1f` | `941abc64-a685-458d-b5bc-e24e11f53e8e` | `941abc64-a685-458d-b5bc-e24e11f53e8e` | 0.30 | 0.30 | 0.30 (completed) | 0.30 | CONFIRMED | 2026-11-18 15:11:18 |
+| **Total** | | | | **9.50** | **9.50** | **9.50** | **9.50** | | |
 
 | Feature | Test or provider resource ID | Date | Result |
 |---|---|---|---|
-| Payee verification of the four wallets against the real provider | TO FILL AFTER LIVE RUN | | |
-| Payout Farmer A: incoming payment id | TO FILL AFTER LIVE RUN | | |
-| Payout Farmer A: quote id | TO FILL AFTER LIVE RUN | | |
-| Payout Farmer A: outgoing payment id | TO FILL AFTER LIVE RUN | | |
-| Payout Farmer B: incoming / quote / outgoing ids | TO FILL AFTER LIVE RUN | | |
-| Payout Farmer C: incoming / quote / outgoing ids | TO FILL AFTER LIVE RUN | | |
-| Payout logistics: incoming / quote / outgoing ids | TO FILL AFTER LIVE RUN | | |
-| Declined consent on the cooperative wallet (genuine record): audit event id and order | TO FILL AFTER LIVE RUN | | |
-| Did one wallet approval cover all four payouts? (audit "Payout submission summary") | TO FILL AFTER LIVE RUN | | |
-| Quoted debit versus amount received for the USD-to-USD payouts | TO FILL AFTER LIVE RUN | | |
-| Order reaches COMPLETED from provider-confirmed payouts | TO FILL AFTER LIVE RUN | | |
-| Wallet balances before and after | TO FILL AFTER LIVE RUN | | |
+| Payee verification of the four wallets against the real provider | audit events 16 to 19 (PAYEE_VERIFIED: Farmer A, Farmer B, Farmer C, Logistics Provider) | 2026-11-18 15:07 UTC | Verified by the operator |
+| Split approved and locked | audit event 20 (SPLIT_APPROVED), approval version 1, total 10.00 USD | 2026-11-18 15:07:48 UTC | Approved |
+| One wallet approval for all four payouts | audit event 26 (CONSENT_STARTED, scope ALL, limit 9.50 USD, operations 1 to 4); audit event 32 (PAYOUT_SUBMIT_SUMMARY: requested 4, created 4, failed 0, unknown 0, blocked 0, `grantDidNotCoverAll: false`, `grantLimitMinor: 950`) | 2026-11-18 15:08:40 to 15:11:03 UTC | One consent covered all four payments in this run |
+| Quoted debit versus amount received for the USD-to-USD payouts | table above | 2026-11-18 | Equal in all four payouts (no fee or difference seen) |
+| Order reaches COMPLETED from provider-confirmed payouts | audit event 37 (ORDER_COMPLETED) | 2026-11-18 15:11:18 UTC | PO-0124 status COMPLETED; actual provider-confirmed debit 9.50 USD |
+| Genuine rejected wallet consent (recorded) | audit event 43 (CONSENT_REJECTED, outcome CANCELLED), order **PO-0125**, grant session 3 | 2026-11-18 15:16:09 UTC | Recorded on a **buyer-payment** consent (started 15:15:49 UTC, audit event 42). The payment stayed waiting and nothing was marked failed. |
+| Rejected consent on the **cooperative payout** wallet consent | NOT FOUND in the database | | Not recorded. The payout consent on PO-0124 was approved first time. |
+
+## B2. Live items still to collect
+
+| Feature | Test or provider resource ID | Date | Result |
+|---|---|---|---|
+| Wallet balances before and after (buyer EUR, cooperative USD, farmers USD, logistics USD). The app does not store them. | TO FILL AFTER LIVE RUN | | |
+| A declined consent on the cooperative payout wallet consent (optional, see above) | TO FILL AFTER LIVE RUN | | |
 
 ## C. Manual checks (see `docs/VERIFICATION_CHECKLIST.md`)
 
@@ -103,7 +113,7 @@ These are ids inside the provider's resource URLs (`.../incoming-payments/<id>`,
 | Declined consent is not FAILED; operator can try again | `lib/payouts.test.ts`: "declined consent: CONSENT_REJECTED / CANCELLED, payouts stay AWAITING_CONSENT, none FAILED, operator can retry" | 2026-11-18 | PASS |
 | Wrong role is rejected | `lib/payouts.test.ts`: "only operators can start, authorize, reconcile or retry"; "callback checks are shared with the buyer flow ..." | 2026-11-18 | PASS |
 | Retry only after a confirmed failure | `lib/payouts.test.ts`: "a clear refusal is FAILED; a new attempt is allowed only then, only for an operator, with a new attempt number" | 2026-11-18 | PASS |
-| One approval covering one payment only: fall back to one approval per recipient | `lib/payouts.test.ts`: "a consent that covers only ONE payment ..." (fake provider behaviour, NOT observed live) | 2026-11-18 | PASS |
+| One approval covering one payment only: fall back to one approval per recipient | `lib/payouts.test.ts`: "a consent that covers only ONE payment ..." (fake provider behaviour. In the live run one approval covered all four payments, so this fallback path has NOT been exercised live) | 2026-11-18 | PASS |
 
 ### Orders, demo reset, receipts
 

@@ -11,12 +11,14 @@ This is a prototype. This page says plainly what it is not, so nobody has to fin
 - **One buyer wallet.** Every buyer user pays from the single demo buyer wallet. The wallet owner still has to approve each payment in the wallet.
 
 ## What has and has not been proven live
-- Proven on the test network: a buyer-to-cooperative transfer with consent (see `docs/TEST_EVIDENCE.md`).
-- **Not yet proven on the test network (at the time of writing):** payee verification against the real provider, the payouts to farmers and logistics, a declined consent on the cooperative wallet, and whether one wallet approval can fund all four payouts. The automated tests use a fake provider that behaves the way the Open Payments documents say a provider should; the real provider may differ. `docs/VERIFICATION_CHECKLIST.md` lists the live run to do.
-- Observed provider behaviour (fill in after the live run):
-  - One approval covered all four payouts: TO FILL AFTER LIVE RUN
-  - Quoted debit for same-currency (USD to USD) payouts compared with the amount received: TO FILL AFTER LIVE RUN
-  - Anything unexpected the provider did: TO FILL AFTER LIVE RUN
+- Proven on the test network, with play money, on one order (PO-0124): the buyer payment with consent, payee verification, split approval, and payouts to Farmer A, Farmer B, Farmer C and logistics, all confirmed by the provider. **One wallet consent covered all four payouts** in that run (the audit log shows `grantDidNotCoverAll: false` with a limit of 9.50 USD). For these same-currency payouts the quoted debit equalled the amount received. Ids and amounts: `docs/TEST_EVIDENCE.md`.
+- A rejected wallet consent was recorded once, on a buyer-payment consent for a second order. It was logged as a cancelled consent, not a failed transfer.
+- **Not proven live:**
+  - One run only. Repeatability, other amounts, and several orders at once have not been tried live.
+  - A declined consent on the cooperative's payout approval (the payout approval on PO-0124 was approved first time).
+  - The fallback of one approval per recipient. It exists and is tested with a fake provider, but the real provider never needed it.
+  - Failure paths against the real provider (refused payments, timeouts, unclear replies). They are tested only with a fake provider.
+  - Wallet balances before and after have not been compared (see `docs/VERIFICATION_CHECKLIST.md`).
 
 ## Software limits
 - **Single server, single file database.** SQLite in one file, no backups, no replication. Rate limits are kept in the server's memory and reset when it restarts, so they do not work across several servers.

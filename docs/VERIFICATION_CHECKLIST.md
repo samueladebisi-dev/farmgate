@@ -4,7 +4,9 @@ The automated tests (`npm run verify`) cannot do these. Do them in this order. W
 
 Setup first: `npm run db:migrate`, `npm run verify` passes, wallet signed in, `.env` has your real `KEY_ID` and `private.key`.
 
-## 1. Live payout run, with a decline first and then an approval
+## 1. [DONE, with one gap] Live payout run, with a decline first and then an approval
+
+**Status (2026-11-18):** the live payout run is DONE and proven: all four payouts confirmed by the provider on PO-0124, order COMPLETED, actual debit 9.50 USD, one consent covered all four. The decline test is DONE in part: a rejected consent was recorded for real (audit event 43, order PO-0125, 15:16:09 UTC), but on a **buyer-payment** consent, not on the cooperative payout approval. Ids are in `docs/TEST_EVIDENCE.md`. Optional: also decline once on a payout approval and record it. The steps below are kept for repeating it.
 
 **Do:**
 1. Note all wallet balances first (item 6).

@@ -26,12 +26,14 @@ The logistics payee is paid like a farmer but has no login.
 ## What is REAL, and what is NOT
 
 **Real**
-- A genuine [Open Payments](https://openpayments.dev) transfer on the Interledger **test network**, with play money: quote, wallet consent (redirect and callback, with the interaction hash checked), and an outgoing payment created at the provider. A buyer-to-cooperative transfer has been run live (see `docs/TEST_EVIDENCE.md`).
+- A genuine [Open Payments](https://openpayments.dev) transfer on the Interledger **test network**, with play money: quote, wallet consent (redirect and callback, with the interaction hash checked), and an outgoing payment created at the provider. A buyer-to-cooperative transfer has been run live through the app (see `docs/TEST_EVIDENCE.md`).
 - Statuses come from the provider, not from the app's own guess. The app re-reads the incoming and outgoing payments and only moves an order or payout forward on what they show. A payment whose outcome is unclear is marked UNKNOWN and checked before anything else happens.
 - An append-only audit log, with secrets kept out of it.
 
-**Built and tested with a fake provider, NOT yet run live (at the time of writing)**
-- Payee verification, split approval, and the payouts to farmers and logistics. The automated tests use a mocked provider. A live run is step 1 of `docs/VERIFICATION_CHECKLIST.md`. Until that is done and recorded in `docs/TEST_EVIDENCE.md`, do not describe the payouts as proven on the real network.
+**Also proven live on the test network (play money), order PO-0124**
+- Payee verification of the four recipient wallets, split approval, and real payouts to Farmer A, Farmer B, Farmer C and logistics. All four payouts were confirmed by the provider, the order reached COMPLETED, and the actual provider-confirmed debit was 9.50 USD. **One wallet consent covered all four payments** in that run. Ids and amounts are in `docs/TEST_EVIDENCE.md`.
+- A rejected wallet consent has been recorded for real (on a buyer-payment consent for a second order): it was logged as a cancelled consent, not a failed transfer.
+- This was one run, with play money, on wallets that share one account (see `docs/LIMITATIONS.md`). It shows the flow works end to end on the test network, not that it is ready for real funds. Refunds remain out of scope.
 
 **NOT built**
 - Real money, real currencies, cash-out (turning wallet balances into cash or mobile money), SMS sending (the receipt text is for manual copy), disputes, refunds, chargebacks, production custody of keys and funds, notifications, a native mobile app, multi-cooperative or multi-tenant support. See `docs/LIMITATIONS.md`.
