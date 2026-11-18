@@ -30,6 +30,7 @@ export type OrderRow = {
 export type ItemRow = { farmerId: string; farmerName: string; produce: string; kg: number; priceMinorPerKg: number; gross: Money };
 
 export type AllocationRow = {
+  id: number;
   recipient: string;
   recipientName: string;
   kind: "farmer" | "logistics" | "cooperative";
@@ -39,6 +40,8 @@ export type AllocationRow = {
   net: Money;
   approvalVersion: number;
   payoutState: PayoutState | null;
+  /** Short transaction reference shown to the recipient, e.g. PAY-041 (from the allocation id). */
+  reference: string | null;
   dashboardWords: string;
   farmerWords: string;
 };
@@ -71,9 +74,9 @@ function toOrder(r: RawOrder): OrderRow {
 
 /** Operators see all orders, buyers only their own. Farmers see no order-level data at all. */
 export function listOrders(db: Db, actor: Actor): OrderRow[] {
-  if (actor.role === "operator") return (db.prepare(`${ORDER_SQL} ORDER BY o.id`).all() as RawOrder[]).map(toOrder);
+  if (actor.role === "operator") return (db.prepare(`${ORDER_SQL} ORDER BY o.id DESC`).all() as RawOrder[]).map(toOrder);
   if (actor.role === "buyer") {
-    return (db.prepare(`${ORDER_SQL} WHERE o.buyer_user_id = ? ORDER BY o.id`).all(actor.id) as RawOrder[]).map(toOrder);
+    return (db.prepare(`${ORDER_SQL} WHERE o.buyer_user_id = ? ORDER BY o.id DESC`).all(actor.id) as RawOrder[]).map(toOrder);
   }
   throw new ForbiddenError("Farmers cannot read orders");
 }
@@ -104,11 +107,12 @@ type RawAlloc = {
 function toAllocation(db: Db, r: RawAlloc): AllocationRow {
   const words = r.state ? STATE_WORDS[r.state] : NO_PAYOUT_WORDS;
   return {
-    recipient: r.recipient, recipientName: farmerName(db, r.recipient), kind: r.kind,
+    id: r.id, recipient: r.recipient, recipientName: farmerName(db, r.recipient), kind: r.kind,
     gross: { minor: r.gross_minor, assetCode: r.asset_code, assetScale: r.asset_scale },
     feeMinor: r.fee_minor, deductionMinor: r.deduction_minor,
     net: { minor: r.net_minor, assetCode: r.asset_code, assetScale: r.asset_scale },
     approvalVersion: r.approval_version, payoutState: r.state,
+    reference: `PAY-${String(r.id).padStart(3, "0")}`,
     dashboardWords: words.dashboard, farmerWords: words.farmer,
   };
 }
@@ -134,7 +138,7 @@ export type FarmerRecord = { farmerId: string; farmerName: string; orderRef: str
 export function getFarmerRecord(db: Db, actor: Actor, farmerId: string): FarmerRecord[] {
   const allowed = actor.role === "operator" || (actor.role === "farmer" && actor.linkedFarmerId === farmerId);
   if (!allowed) throw new ForbiddenError("You can only read your own record");
-  const orders = db.prepare("SELECT id, order_ref FROM orders ORDER BY id").all() as { id: number; order_ref: string }[];
+  const orders = db.prepare("SELECT id, order_ref FROM orders ORDER BY id DESC").all() as { id: number; order_ref: string }[];
   const out: FarmerRecord[] = [];
   for (const o of orders) {
     const items = (
@@ -149,4 +153,12 @@ export function getFarmerRecord(db: Db, actor: Actor, farmerId: string): FarmerR
     out.push({ farmerId, farmerName: farmerName(db, farmerId), orderRef: o.order_ref, items, allocation: raw ? toAllocation(db, raw) : null });
   }
   return out;
+}
+
+/** One allocation as a recipient would see it. NO permission check: callers must have decided who may see it. */
+export function loadAllocation(db: Db, allocationId: number): (AllocationRow & { orderRef: string; orderId: number }) | null {
+  const raw = db.prepare(`${ALLOC_SQL} WHERE a.id = ?`).get(allocationId) as (RawAlloc & { order_id?: number }) | undefined;
+  if (!raw) return null;
+  const o = db.prepare("SELECT o.id, o.order_ref FROM allocations a JOIN orders o ON o.id = a.order_id WHERE a.id = ?").get(allocationId) as { id: number; order_ref: string };
+  return { ...toAllocation(db, raw), orderRef: o.order_ref, orderId: o.id };
 }

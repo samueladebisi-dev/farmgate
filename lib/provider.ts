@@ -10,7 +10,7 @@ import {
 
 // ---- Plain data shapes (so tests can mock the provider without the SDK) ----
 export type ProviderAmount = { value: string; assetCode: string; assetScale: number };
-export type WalletInfo = { id: string; assetCode: string; assetScale: number; authServer: string; resourceServer: string };
+export type WalletInfo = { id: string; assetCode: string; assetScale: number; authServer: string; resourceServer: string; publicName?: string };
 export type IncomingInfo = { id: string; completed: boolean; expiresAt?: string; incomingAmount?: ProviderAmount; receivedAmount: ProviderAmount };
 export type QuoteInfo = { id: string; debitAmount: ProviderAmount; receiveAmount: ProviderAmount; expiresAt?: string };
 export type OutgoingInfo = { id: string; failed: boolean; debitAmount: ProviderAmount; sentAmount: ProviderAmount; receiveAmount: ProviderAmount };
@@ -23,6 +23,8 @@ export class ProviderUnclear extends Error {}
 
 export interface PaymentProvider {
   getWallet(url: string): Promise<WalletInfo>;
+  /** Like getWallet, but refuses to follow redirects (used when verifying payees). */
+  getWalletStrict(url: string): Promise<WalletInfo>;
   createIncomingPayment(a: { coop: WalletInfo; amount: ProviderAmount; expiresAt: string }): Promise<IncomingInfo>;
   getIncomingPayment(a: { coop: WalletInfo; id: string }): Promise<IncomingInfo>;
   completeIncomingPayment(a: { coop: WalletInfo; id: string }): Promise<IncomingInfo>;
@@ -79,7 +81,25 @@ export function createRealProvider(): PaymentProvider {
   return {
     async getWallet(url) {
       const w = await (await client()).walletAddress.get({ url });
-      return { id: w.id, assetCode: w.assetCode, assetScale: w.assetScale, authServer: w.authServer, resourceServer: w.resourceServer };
+      return { id: w.id, assetCode: w.assetCode, assetScale: w.assetScale, authServer: w.authServer, resourceServer: w.resourceServer, publicName: w.publicName };
+    },
+
+    async getWalletStrict(url) {
+      // Pre-flight: a redirect on a wallet address is never legitimate here, so refuse instead of following it.
+      let r: Response;
+      try {
+        r = await fetch(url, { redirect: "manual", headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+      } catch (e) {
+        throw classify(e);
+      }
+      if (r.status >= 300 && r.status < 400) throw new ProviderRejected(`Wallet address redirected (HTTP ${r.status}); refusing to follow`);
+      if (r.status >= 400 && r.status < 500) throw new ProviderRejected(`Wallet address lookup failed (HTTP ${r.status})`);
+      try {
+        const w = await (await client()).walletAddress.get({ url });
+        return { id: w.id, assetCode: w.assetCode, assetScale: w.assetScale, authServer: w.authServer, resourceServer: w.resourceServer, publicName: w.publicName };
+      } catch (e) {
+        throw classify(e);
+      }
     },
 
     async createIncomingPayment({ coop, amount, expiresAt }) {

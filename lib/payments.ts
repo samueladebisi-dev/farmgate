@@ -28,19 +28,20 @@ export class PaymentError extends Error {
   }
 }
 
-const nowMs = (d: Deps) => (d.now ? d.now() : Date.now());
-const iso = (ms: number) => new Date(ms).toISOString();
-const who = (a: PayActor) => `${a.role}:${a.id}`;
+export const nowMs = (d: Deps) => (d.now ? d.now() : Date.now());
+export const iso = (ms: number) => new Date(ms).toISOString();
+export const who = (a: PayActor) => `${a.role}:${a.id}`;
 
 // ---------------------------------------------------------------------------
 // Rows
 // ---------------------------------------------------------------------------
-type OrderRow = {
+export type OrderRow = {
   id: number; order_ref: string; buyer_user_id: number; buyer_wallet_id: number; cooperative_wallet_id: number;
   expected_receive_minor: number; confirmed_received_minor: number | null; asset_code: string; asset_scale: number;
   status: string; version: number; exception: string | null; exception_detail: string | null; confirmed_incoming_id: string | null;
+  approval_version: number; approval_fingerprint: string | null; approved_at: string | null;
 };
-type WalletRow = { id: number; canonical_url: string; asset_code: string; asset_scale: number; verified_at: string | null };
+export type WalletRow = { id: number; canonical_url: string; asset_code: string; asset_scale: number; verified_at: string | null };
 export type ResourceRow = {
   id: number; order_id: number; state: PayoutState; incoming_payment_id: string | null; quote_id: string | null; outgoing_payment_id: string | null;
   quote_debit_minor: number | null; quote_debit_asset: string | null; quote_debit_scale: number | null;
@@ -50,18 +51,18 @@ export type ResourceRow = {
   sent_minor: number | null; sent_asset: string | null; sent_scale: number | null;
   outgoing_failed: number | null; consent_outcome: "REJECTED" | null; outgoing_token_enc: string | null; buyer_wallet_id: number | null;
 };
-type GrantRow = {
+export type GrantRow = {
   id: number; initiator_session_id: string; wallet_id: number; order_id: number; nonce: string; grant_reference: string | null;
   expires_at: string; outcome: string | null; purpose: string; payment_resource_id: number | null; server_nonce: string | null;
   grant_endpoint: string | null; continue_uri: string | null; continue_token_enc: string | null; used_at: string | null;
 };
 
-function loadOrder(db: Db, id: number): OrderRow {
+export function loadOrder(db: Db, id: number): OrderRow {
   const o = db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as OrderRow | undefined;
   if (!o) throw new NotFoundError("Order not found");
   return o;
 }
-const wallet = (db: Db, id: number) => db.prepare("SELECT id, canonical_url, asset_code, asset_scale, verified_at FROM wallets WHERE id = ?").get(id) as WalletRow;
+export const wallet = (db: Db, id: number) => db.prepare("SELECT id, canonical_url, asset_code, asset_scale, verified_at FROM wallets WHERE id = ?").get(id) as WalletRow;
 const latestResource = (db: Db, orderId: number) =>
   db.prepare("SELECT * FROM payment_resources WHERE order_id = ? AND direction = 'INBOUND' ORDER BY id DESC LIMIT 1").get(orderId) as ResourceRow | undefined;
 const resourceById = (db: Db, id: number) => db.prepare("SELECT * FROM payment_resources WHERE id = ?").get(id) as ResourceRow;
@@ -76,13 +77,13 @@ function assertCanReconcile(actor: PayActor, o: OrderRow) {
   assertBuyerOwns(actor, o);
 }
 
-const amt = (minor: number, code: string, scale: number): ProviderAmount => ({ value: String(minor), assetCode: code, assetScale: scale });
-function minorOf(a: ProviderAmount): number {
+export const amt = (minor: number, code: string, scale: number): ProviderAmount => ({ value: String(minor), assetCode: code, assetScale: scale });
+export function minorOf(a: ProviderAmount): number {
   const n = Number(a.value);
   if (!Number.isSafeInteger(n) || n < 0 || !/^\d+$/.test(a.value)) throw new Error(`Provider returned a non-integer amount: ${a.value}`);
   return n;
 }
-const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
+export const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300);
 
 /** Write an audit row for a failure and return a user-safe error pointing at it. */
 function failure(d: Deps, actor: PayActor, action: string, orderId: number, userMessage: string, detail: unknown): PaymentError {
@@ -224,15 +225,36 @@ export function verifyInteractionHash(p: { clientNonce: string; serverNonce: str
 
 export type CallbackResult = { kind: "PROCESSING" | "CANCELLED" | "REJECTED"; orderId: number | null; message: string; auditId?: number };
 
-export async function handleCallback(d: Deps, actor: PayActor | null, q: URLSearchParams): Promise<CallbackResult> {
-  const { db, provider } = d;
-  const reject = (reason: string, gs: GrantRow | null, outcome: "ERROR" | "EXPIRED" | null = null): CallbackResult => {
+export type CallbackCheck =
+  | { type: "reject"; result: CallbackResult }
+  | { type: "declined"; gs: GrantRow; order: OrderRow }
+  | { type: "approved"; gs: GrantRow; order: OrderRow; interactRef: string };
+
+/** Which consent purpose a return URL belongs to (so the route can pick the right handler). null = unknown. */
+export function peekGrantPurpose(db: Db, actor: PayActor | null, q: URLSearchParams): string | null {
+  const ref = q.get("gs");
+  const row = (ref
+    ? db.prepare("SELECT purpose FROM grant_sessions WHERE grant_reference = ?").get(ref)
+    : actor
+      ? db.prepare("SELECT purpose FROM grant_sessions WHERE initiator_session_id = ? AND used_at IS NULL ORDER BY id DESC LIMIT 1").get(actor.sessionId)
+      : undefined) as { purpose: string } | undefined;
+  return row?.purpose ?? null;
+}
+
+/**
+ * The shared callback verification used by BOTH the buyer payment and the payouts:
+ * session, user/role, order, purpose, expiry, replay (atomic), declined consent, and the interaction hash.
+ * Every rejection is written to audit_events. Effects of declined/approved are left to the caller.
+ */
+export function verifyCallback(d: Deps, actor: PayActor | null, q: URLSearchParams, expectedPurpose: string): CallbackCheck {
+  const { db } = d;
+  const reject = (reason: string, gs: GrantRow | null, outcome: "ERROR" | "EXPIRED" | null = null): CallbackCheck => {
     if (gs && outcome) db.prepare("UPDATE grant_sessions SET outcome = ? WHERE id = ? AND outcome IS NULL").run(outcome, gs.id);
     const auditId = audit(db, {
       actor: actor ? who(actor) : "anonymous", action: "GRANT_REJECTED", entityType: gs ? "order" : "callback", entityId: gs ? gs.order_id : "n/a",
-      metadata: { reason, grantSessionId: gs?.id ?? null, message: "Callback rejected" },
+      metadata: { reason, grantSessionId: gs?.id ?? null, purpose: gs?.purpose ?? null, message: "Callback rejected" },
     });
-    return { kind: "REJECTED", orderId: gs?.order_id ?? null, message: "This payment return was rejected.", auditId };
+    return { type: "reject", result: { kind: "REJECTED", orderId: gs?.order_id ?? null, message: "This payment return was rejected.", auditId } };
   };
 
   if (!actor) return reject("NO_SESSION", null);
@@ -245,10 +267,12 @@ export async function handleCallback(d: Deps, actor: PayActor | null, q: URLSear
   if (!gs) return reject("UNKNOWN_GRANT_SESSION", null);
   if (gs.initiator_session_id !== actor.sessionId) return reject("WRONG_SESSION", gs);
   const order = loadOrder(db, gs.order_id);
-  if (order.buyer_user_id !== actor.id || actor.role !== "buyer") return reject("WRONG_USER", gs);
+  // Buyer payments: only the buyer who owns the order. Payouts: only an operator.
+  const roleOk = expectedPurpose === PURPOSE ? actor.role === "buyer" && order.buyer_user_id === actor.id : actor.role === "operator";
+  if (!roleOk) return reject("WRONG_USER", gs);
   if (q.has("order") && q.get("order") !== String(gs.order_id)) return reject("ORDER_MISMATCH", gs);
   if (q.has("purpose") && q.get("purpose") !== gs.purpose) return reject("PURPOSE_MISMATCH", gs);
-  if (gs.purpose !== PURPOSE) return reject("PURPOSE_MISMATCH", gs);
+  if (gs.purpose !== expectedPurpose) return reject("PURPOSE_MISMATCH", gs);
   if (gs.used_at) return reject("REPLAY", gs);
   if (Date.parse(gs.expires_at) < nowMs(d)) return reject("SESSION_EXPIRED", gs, "EXPIRED");
 
@@ -256,12 +280,38 @@ export async function handleCallback(d: Deps, actor: PayActor | null, q: URLSear
   const won = db.transaction(() => db.prepare("UPDATE grant_sessions SET used_at = ? WHERE id = ? AND used_at IS NULL").run(iso(nowMs(d)), gs.id).changes === 1)();
   if (!won) return reject("REPLAY", gs);
 
-  const resource = gs.payment_resource_id ? resourceById(db, gs.payment_resource_id) : undefined;
-  if (!resource) return reject("NO_PAYMENT_RESOURCE", gs, "ERROR");
-
-  // The buyer declined in the wallet: a consent event, NOT a failed transfer.
+  // The wallet owner declined: a consent event, NOT a failed transfer.
   const result = q.get("result");
-  if (result === "grant_rejected") {
+  if (result === "grant_rejected") return { type: "declined", gs, order };
+  if (result) return reject(`PROVIDER_RESULT_${result}`.slice(0, 60), gs, "ERROR");
+
+  const interactRef = q.get("interact_ref");
+  const hash = q.get("hash");
+  if (!interactRef || !hash) return reject("MISSING_INTERACT_PARAMS", gs, "ERROR");
+  if (!gs.server_nonce || !gs.grant_endpoint || !gs.continue_uri || !gs.continue_token_enc) return reject("INCOMPLETE_GRANT_SESSION", gs, "ERROR");
+  if (!verifyInteractionHash({ clientNonce: gs.nonce, serverNonce: gs.server_nonce, interactRef, grantEndpoint: gs.grant_endpoint, receivedHash: hash })) {
+    return reject("HASH_MISMATCH", gs, "ERROR");
+  }
+  audit(db, { actor: who(actor), action: "GRANT_VERIFIED", entityType: "order", entityId: order.id, metadata: { grantSessionId: gs.id, purpose: gs.purpose } });
+  return { type: "approved", gs, order, interactRef };
+}
+
+export async function handleCallback(d: Deps, actor: PayActor | null, q: URLSearchParams): Promise<CallbackResult> {
+  const { db, provider } = d;
+  const check = verifyCallback(d, actor, q, PURPOSE);
+  if (check.type === "reject") return check.result;
+  const { gs, order } = check;
+  if (!actor) throw new Error("unreachable: verifyCallback rejects a missing actor");
+  const reject = (reason: string, outcome: "ERROR" | null = "ERROR"): CallbackResult => {
+    if (outcome) db.prepare("UPDATE grant_sessions SET outcome = ? WHERE id = ? AND outcome IS NULL").run(outcome, gs.id);
+    const auditId = audit(db, { actor: who(actor), action: "GRANT_REJECTED", entityType: "order", entityId: order.id, metadata: { reason, grantSessionId: gs.id, message: "Callback rejected" } });
+    return { kind: "REJECTED", orderId: order.id, message: "This payment return was rejected.", auditId };
+  };
+
+  const resource = gs.payment_resource_id ? resourceById(db, gs.payment_resource_id) : undefined;
+  if (!resource) return reject("NO_PAYMENT_RESOURCE");
+
+  if (check.type === "declined") {
     db.transaction(() => {
       db.prepare("UPDATE grant_sessions SET outcome = 'REJECTED' WHERE id = ?").run(gs.id);
       if (resource.state === "AWAITING_CONSENT") db.prepare("UPDATE payment_resources SET consent_outcome = 'REJECTED', updated_at = ? WHERE id = ?").run(iso(nowMs(d)), resource.id);
@@ -272,25 +322,16 @@ export async function handleCallback(d: Deps, actor: PayActor | null, q: URLSear
     });
     return { kind: "CANCELLED", orderId: order.id, message: "You declined the payment in the wallet. Nothing was paid. You can try again.", auditId };
   }
-  if (result) return reject(`PROVIDER_RESULT_${result}`.slice(0, 60), gs, "ERROR");
+  const { interactRef } = check;
 
-  const interactRef = q.get("interact_ref");
-  const hash = q.get("hash");
-  if (!interactRef || !hash) return reject("MISSING_INTERACT_PARAMS", gs, "ERROR");
-  if (!gs.server_nonce || !gs.grant_endpoint || !gs.continue_uri || !gs.continue_token_enc) return reject("INCOMPLETE_GRANT_SESSION", gs, "ERROR");
-  if (!verifyInteractionHash({ clientNonce: gs.nonce, serverNonce: gs.server_nonce, interactRef, grantEndpoint: gs.grant_endpoint, receivedHash: hash })) {
-    return reject("HASH_MISMATCH", gs, "ERROR");
-  }
-  audit(db, { actor: who(actor), action: "GRANT_VERIFIED", entityType: "order", entityId: order.id, metadata: { grantSessionId: gs.id, paymentResourceId: resource.id } });
-
-  if (resource.state !== "AWAITING_CONSENT") return reject(`PAYMENT_NOT_AWAITING_CONSENT_${resource.state}`, gs, "ERROR");
+  if (resource.state !== "AWAITING_CONSENT") return reject(`PAYMENT_NOT_AWAITING_CONSENT_${resource.state}`);
 
   // Continue the grant (no money moves yet).
   let accessToken: string;
   let buyer: WalletInfo;
   try {
     buyer = await provider.getWallet(wallet(db, gs.wallet_id).canonical_url);
-    ({ accessToken } = await provider.finishOutgoingGrant({ continueUri: gs.continue_uri, continueToken: open(gs.continue_token_enc), interactRef }));
+    ({ accessToken } = await provider.finishOutgoingGrant({ continueUri: gs.continue_uri!, continueToken: open(gs.continue_token_enc!), interactRef }));
   } catch (e) {
     db.prepare("UPDATE grant_sessions SET outcome = 'ERROR' WHERE id = ?").run(gs.id);
     const auditId = audit(db, { actor: who(actor), action: "GRANT_CONTINUE_FAILED", entityType: "order", entityId: order.id, metadata: { message: errMsg(e) } });
@@ -391,6 +432,8 @@ export async function reconcileOrder(d: Deps, actorLabel: string, orderId: numbe
   const decision = evaluateReceipts(order.expected_receive_minor, facts, order.confirmed_incoming_id);
 
   db.transaction(() => {
+    // Old quotes nobody used and nothing was received on: mark expired so the operator view can collapse them.
+    db.prepare("UPDATE payment_resources SET expired_at = ? WHERE order_id = ? AND direction = 'INBOUND' AND expired_at IS NULL AND outgoing_payment_id IS NULL AND state IN ('CREATED','AWAITING_CONSENT') AND quote_expires_at < ? AND COALESCE(received_minor, 0) = 0").run(iso(nowMs(d)), orderId, iso(nowMs(d)));
     let confirmedId = order.confirmed_incoming_id;
     if (decision.confirmIncomingId && order.status === "AWAITING_PAYMENT" && order.confirmed_received_minor === null) {
       const res = db
@@ -467,6 +510,8 @@ export type PaymentView = {
   operator?: {
     exception: string | null;
     exceptionDetail: string | null;
+    /** Earlier quotes that were never used and have expired (collapsed into one line). */
+    unusedEarlierQuotes: number;
     resources: { id: number; state: string; words: string; incomingId: string | null; quoteId: string | null; outgoingId: string | null; debit: string | null; receive: string | null; received: string | null; sent: string | null; completed: boolean | null; outgoingFailed: boolean | null }[];
   };
 };
@@ -502,10 +547,12 @@ export function getPaymentView(d: Deps, actor: PayActor, orderId: number): Payme
   if (actor.role === "operator") {
     const rows = db.prepare("SELECT * FROM payment_resources WHERE order_id = ? AND direction='INBOUND' ORDER BY id").all(orderId) as ResourceRow[];
     view.canReconcile = awaiting && rows.length > 0;
+    const isUnused = (r: ResourceRow) => !r.outgoing_payment_id && (r.state === "CREATED" || r.state === "AWAITING_CONSENT") && !!r.quote_expires_at && Date.parse(r.quote_expires_at) < nowMs(d) && (r.received_minor ?? 0) === 0;
     view.operator = {
       exception: o.exception,
       exceptionDetail: o.exception_detail,
-      resources: rows.map((r) => ({
+      unusedEarlierQuotes: rows.filter(isUnused).length,
+      resources: rows.filter((r) => !isUnused(r)).map((r) => ({
         id: r.id, state: r.state, words: STATE_WORDS[r.state].dashboard, incomingId: r.incoming_payment_id, quoteId: r.quote_id, outgoingId: r.outgoing_payment_id,
         debit: m(r.quote_debit_minor, r.quote_debit_asset, r.quote_debit_scale), receive: m(r.receive_minor, r.receive_asset, r.receive_scale),
         received: m(r.received_minor, r.received_asset, r.received_scale), sent: m(r.sent_minor, r.sent_asset, r.sent_scale),
@@ -518,8 +565,9 @@ export function getPaymentView(d: Deps, actor: PayActor, orderId: number): Payme
 
 /** Message text for a failure the user was redirected after. Only events about the user's own orders are readable. */
 export function getFailureMessage(db: Db, actor: PayActor, auditId: number): string | null {
-  const e = db.prepare("SELECT entity_id, metadata FROM audit_events WHERE id = ? AND entity_type = 'order'").get(auditId) as { entity_id: string; metadata: string } | undefined;
+  const e = db.prepare("SELECT entity_type, entity_id, metadata FROM audit_events WHERE id = ? AND entity_type IN ('order', 'demo')").get(auditId) as { entity_type: string; entity_id: string; metadata: string } | undefined;
   if (!e) return null;
+  if (e.entity_type === "demo" && actor.role !== "operator") return null;
   if (actor.role === "buyer") {
     const o = db.prepare("SELECT buyer_user_id FROM orders WHERE id = ?").get(Number(e.entity_id)) as { buyer_user_id: number } | undefined;
     if (!o || o.buyer_user_id !== actor.id) return null;

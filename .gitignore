@@ -9,3 +9,4 @@ node_modules
 next-env.d.ts
 data/
 tsconfig.tsbuildinfo
+.next-bundle-test

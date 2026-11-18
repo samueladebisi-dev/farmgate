@@ -15,8 +15,8 @@ function secret(): string {
 
 const sign = (data: string, key: string) => createHmac("sha256", key).update(data).digest("base64url");
 
-export function createSessionToken(uid: number, now = Date.now(), key = secret()): string {
-  const payload: SessionPayload = { uid, sid: randomBytes(16).toString("hex"), exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS };
+export function createSessionToken(uid: number, now = Date.now(), key = secret(), sid: string = randomBytes(16).toString("hex")): string {
+  const payload: SessionPayload = { uid, sid, exp: Math.floor(now / 1000) + SESSION_TTL_SECONDS };
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${body}.${sign(body, key)}`;
 }
@@ -35,5 +35,18 @@ export function readSessionToken(token: string | undefined, now = Date.now(), ke
     return p;
   } catch {
     return null;
+  }
+}
+
+/**
+ * The session cookie must be Secure everywhere except plain localhost development
+ * (browsers do not send Secure cookies over http, so localhost is the one exception).
+ */
+export function cookieSecure(appBaseUrl: string | undefined): boolean {
+  try {
+    const host = new URL(appBaseUrl || "http://localhost:3000").hostname;
+    return !(host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host === "::1");
+  } catch {
+    return true; // if the address cannot be read, be safe
   }
 }

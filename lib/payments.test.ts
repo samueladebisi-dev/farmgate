@@ -6,85 +6,12 @@ import { applyMigrations, openDb, type Db } from "./db";
 import {
   getPaymentView, handleCallback, PaymentError, quoteOrder, reconcileForActor, reconcileOrder, startAuthorization, type Deps, type PayActor,
 } from "./payments";
-import {
-  ProviderRejected, ProviderUnclear, type IncomingInfo, type OutgoingInfo, type PaymentProvider, type PendingGrantInfo, type ProviderAmount, type QuoteInfo, type WalletInfo,
-} from "./provider";
+import { BUYER_DEBIT, MockProvider, SECRET_CONTINUE, SECRET_TOKEN } from "./mock-provider";
 import { seedDatabase } from "./seed";
 
 process.env.SESSION_SECRET = "test-session-secret-for-token-box";
-const SECRET_TOKEN = "SECRET-ACCESS-TOKEN-123";
-const SECRET_CONTINUE = "SECRET-CONTINUE-TOKEN-456";
 const EXPECTED = 1000; // 10.00 USD
-const DEBIT = 920; // 9.20 EUR, the "live" quote
-
-class MockProvider implements PaymentProvider {
-  clock: { t: number };
-  incoming = new Map<string, IncomingInfo>();
-  outgoing = new Map<string, OutgoingInfo>();
-  n = 0;
-  outgoingCalls = 0;
-  incomingCreated = 0;
-  outgoingMode: "ok" | "rejected" | "unclear" = "ok";
-  settleOnPay = true; // paying makes the incoming payment receive the full amount
-  completeCalls = 0;
-  lastGrant?: { finishUri: string; nonce: string; serverNonce: string; debit: ProviderAmount; authServer: string };
-  constructor(clock: { t: number }) { this.clock = clock; }
-
-  async getWallet(url: string): Promise<WalletInfo> {
-    const eur = url.includes("da5d080e");
-    return { id: url, assetCode: eur ? "EUR" : "USD", assetScale: 2, authServer: eur ? "https://auth.test/buyer" : "https://auth.test/coop", resourceServer: "https://rs.test" };
-  }
-  async createIncomingPayment({ amount, expiresAt }: { amount: ProviderAmount; expiresAt: string }): Promise<IncomingInfo> {
-    this.incomingCreated++;
-    const id = `https://rs.test/incoming-payments/${++this.n}`;
-    const info: IncomingInfo = { id, completed: false, expiresAt, incomingAmount: amount, receivedAmount: { ...amount, value: "0" } };
-    this.incoming.set(id, info);
-    return info;
-  }
-  async getIncomingPayment({ id }: { id: string }) { return { ...this.incoming.get(id)! }; }
-  async completeIncomingPayment({ id }: { id: string }) {
-    this.completeCalls++;
-    const i = this.incoming.get(id)!;
-    i.completed = true;
-    return { ...i };
-  }
-  async createQuote({ incomingId }: { incomingId: string }): Promise<QuoteInfo> {
-    const inc = this.incoming.get(incomingId)!;
-    return {
-      id: `https://rs.test/quotes/${++this.n}`,
-      debitAmount: { value: String(DEBIT), assetCode: "EUR", assetScale: 2 },
-      receiveAmount: inc.incomingAmount!,
-      expiresAt: new Date(this.clock.t + 5 * 60_000).toISOString(),
-    };
-  }
-  async startOutgoingGrant(a: { buyer: WalletInfo; debit: ProviderAmount; finishUri: string; nonce: string }): Promise<PendingGrantInfo> {
-    this.lastGrant = { finishUri: a.finishUri, nonce: a.nonce, serverNonce: "server-nonce-xyz", debit: a.debit, authServer: a.buyer.authServer };
-    return { redirectUrl: "https://wallet.test/consent/abc", serverNonce: "server-nonce-xyz", continueUri: "https://auth.test/continue/1", continueToken: SECRET_CONTINUE };
-  }
-  async finishOutgoingGrant() { return { accessToken: SECRET_TOKEN }; }
-  async createOutgoingPayment({ quoteId }: { quoteId: string }): Promise<OutgoingInfo> {
-    this.outgoingCalls++;
-    if (this.outgoingMode === "rejected") throw new ProviderRejected("quote expired (HTTP 400)");
-    if (this.outgoingMode === "unclear") throw new ProviderUnclear("timeout");
-    const o: OutgoingInfo = {
-      id: `https://rs.test/outgoing-payments/${++this.n}`, failed: false,
-      debitAmount: { value: String(DEBIT), assetCode: "EUR", assetScale: 2 }, sentAmount: { value: String(DEBIT), assetCode: "EUR", assetScale: 2 },
-      receiveAmount: { value: String(EXPECTED), assetCode: "USD", assetScale: 2 },
-    };
-    this.outgoing.set(o.id, o);
-    void quoteId;
-    if (this.settleOnPay) this.setReceived([...this.incoming.keys()].at(-1)!, EXPECTED, true);
-    return o;
-  }
-  async getOutgoingPayment({ id }: { id: string }) { return { ...this.outgoing.get(id)! }; }
-
-  setReceived(incomingId: string, minor: number, completed: boolean) {
-    const i = this.incoming.get(incomingId)!;
-    i.receivedAmount = { value: String(minor), assetCode: "USD", assetScale: 2 };
-    i.completed = completed;
-  }
-  latestIncomingId() { return [...this.incoming.keys()].at(-1)!; }
-}
+const DEBIT = BUYER_DEBIT; // 9.20 EUR, the "live" quote
 
 let db: Db, clock: { t: number }, provider: MockProvider, deps: Deps;
 const buyer: PayActor = { id: 0, role: "buyer", sessionId: "SESSION-1" };

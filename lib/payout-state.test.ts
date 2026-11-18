@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PAYOUT_STATES, rejectConsent, STATE_WORDS, transition, type PayoutState } from "./payout-state";
+import { beginNewAttempt, PAYOUT_STATES, rejectConsent, STATE_WORDS, transition, type PayoutState } from "./payout-state";
 
 const ALLOWED: [PayoutState, PayoutState][] = [
   ["CREATED", "AWAITING_CONSENT"],
@@ -60,5 +60,13 @@ describe("payout state machine", () => {
     expect(STATE_WORDS.FAILED.farmer).toBe("Failed");
     expect(STATE_WORDS.CONFIRMED.farmer).toBe("Paid");
     for (const s of PAYOUT_STATES) expect(STATE_WORDS[s].dashboard.length).toBeGreaterThan(0);
+  });
+
+  it("a new attempt starts only from a provider-confirmed FAILED", () => {
+    expect(beginNewAttempt("FAILED", true)).toBe("CREATED");
+    expect(() => beginNewAttempt("FAILED", false)).toThrow();
+    for (const s of PAYOUT_STATES) if (s !== "FAILED") expect(() => beginNewAttempt(s, true), s).toThrow();
+    // the normal transition table is untouched: FAILED is still final
+    expect(() => transition("FAILED", "CREATED", { reconciled: true })).toThrow();
   });
 });

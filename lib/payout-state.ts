@@ -32,6 +32,17 @@ export function transition(from: PayoutState, to: PayoutState, opts: { reconcile
 }
 
 /**
+ * Starting a NEW attempt for a payout. This is deliberately NOT a normal transition: FAILED stays final for the
+ * attempt that failed. It is allowed only from FAILED, only when the provider confirmed the failure
+ * (`providerConfirmedFailure`), and the caller must be an operator action. Returns the starting state for the new attempt.
+ */
+export function beginNewAttempt(from: PayoutState, providerConfirmedFailure: boolean): PayoutState {
+  if (from !== "FAILED") throw new InvalidTransitionError(`A new attempt is only allowed after FAILED (was ${from})`);
+  if (!providerConfirmedFailure) throw new InvalidTransitionError("A new attempt needs a provider-confirmed failure");
+  return "CREATED";
+}
+
+/**
  * "Cancelled" is not a state. If the buyer/operator rejects consent, the payout stays in
  * AWAITING_CONSENT and consent_outcome is set to REJECTED. Anything else throws.
  */

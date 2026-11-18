@@ -206,3 +206,90 @@ export function buildDemoOrder(totalMinor: number, scale = 2): DemoItem[] {
     };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Order planning (used by "Create order": preview and save use the same function)
+// ---------------------------------------------------------------------------
+
+export type PlanLine = { farmerId: string; produce: string; kg: number; priceMinorPerKg: number };
+export type PlanFarmerTerms = { feeMinor: number; deductionMinor: number };
+export type OrderPlan = {
+  items: DemoItem[];
+  farmers: { farmerId: string; grossMinor: number; feeMinor: number; deductionMinor: number; netMinor: number }[];
+  ledger: Ledger;
+  /** Expected receive = total gross of all lines. */
+  expectedReceiveMinor: number;
+  logisticsMinor: number;
+  retainedMinor: number;
+};
+
+export class PlanError extends Error {
+  constructor(public errors: string[]) {
+    super(errors.join("; "));
+  }
+}
+
+const MAX_LINES = 20;
+const MAX_KG = 1_000_000;
+const MAX_PRICE_MINOR = 1_000_000_000;
+
+/**
+ * Turns produce lines plus per-farmer fee and logistics deduction into the full allocation, integer maths only.
+ * Fee and deduction are per FARMER (not per line): they are carried by that farmer's first line.
+ * Collects every problem so the operator sees them all at once. A farmer's net must be above zero because a
+ * payout of zero cannot be made.
+ */
+export function planOrder(lines: PlanLine[], terms: Record<string, PlanFarmerTerms>, scale = 2): OrderPlan {
+  const errors: string[] = [];
+  if (!Array.isArray(lines) || lines.length === 0) throw new PlanError(["Add at least one produce line"]);
+  if (lines.length > MAX_LINES) throw new PlanError([`At most ${MAX_LINES} lines`]);
+
+  lines.forEach((l, i) => {
+    const n = i + 1;
+    if (!/^farmer-[a-z0-9]+$/.test(l.farmerId ?? "")) errors.push(`Line ${n}: choose a farmer`);
+    const name = String(l.produce ?? "").trim();
+    if (name.length < 1 || name.length > 60 || /[\u0000-\u001f<>]/.test(name)) errors.push(`Line ${n}: produce name must be 1 to 60 plain characters`);
+    if (!Number.isInteger(l.kg) || l.kg < 1 || l.kg > MAX_KG) errors.push(`Line ${n}: kg must be a whole number from 1 to ${MAX_KG}`);
+    if (!Number.isSafeInteger(l.priceMinorPerKg) || l.priceMinorPerKg < 1 || l.priceMinorPerKg > MAX_PRICE_MINOR) errors.push(`Line ${n}: price per kg must be above zero`);
+  });
+  const farmerIds = [...new Set(lines.map((l) => l.farmerId))];
+  for (const f of farmerIds) {
+    const t = terms?.[f];
+    if (!t) errors.push(`${f}: fee and deduction are missing`);
+    else {
+      if (!Number.isSafeInteger(t.feeMinor) || t.feeMinor < 0) errors.push(`${f}: service fee must be a whole number of minor units, zero or more`);
+      if (!Number.isSafeInteger(t.deductionMinor) || t.deductionMinor < 0) errors.push(`${f}: logistics deduction must be a whole number of minor units, zero or more`);
+    }
+  }
+  if (errors.length) throw new PlanError(errors);
+
+  const seen = new Set<string>();
+  const items: DemoItem[] = lines.map((l) => {
+    const first = !seen.has(l.farmerId);
+    seen.add(l.farmerId);
+    const grossMinor = l.kg * l.priceMinorPerKg;
+    if (!Number.isSafeInteger(grossMinor) || grossMinor > 1e12) errors.push(`${l.produce}: amount is too large`);
+    return {
+      farmerId: l.farmerId, produce: l.produce.trim(), kg: l.kg, priceMinorPerKg: l.priceMinorPerKg, grossMinor,
+      feeMinor: first ? terms[l.farmerId].feeMinor : 0, deductionMinor: first ? terms[l.farmerId].deductionMinor : 0,
+    };
+  });
+  if (errors.length) throw new PlanError(errors);
+
+  const farmers = farmerIds.map((farmerId) => {
+    const mine = items.filter((i) => i.farmerId === farmerId);
+    const grossMinor = mine.reduce((s, i) => s + i.grossMinor, 0);
+    const feeMinor = mine.reduce((s, i) => s + i.feeMinor, 0);
+    const deductionMinor = mine.reduce((s, i) => s + i.deductionMinor, 0);
+    const netMinor = grossMinor - feeMinor - deductionMinor;
+    if (netMinor < 0) errors.push(`${farmerId}: fee and deduction (${formatMinor(feeMinor + deductionMinor, scale)}) are more than the gross amount (${formatMinor(grossMinor, scale)}), net would be negative`);
+    else if (netMinor === 0) errors.push(`${farmerId}: net would be zero. A payout of zero cannot be made, lower the fee or deduction`);
+    return { farmerId, grossMinor, feeMinor, deductionMinor, netMinor };
+  });
+  if (errors.length) throw new PlanError(errors);
+
+  const ledger = buildLedger(items);
+  return {
+    items, farmers, ledger, expectedReceiveMinor: ledger.grossMinor, logisticsMinor: ledger.logisticsMinor, retainedMinor: ledger.feesMinor,
+  };
+}

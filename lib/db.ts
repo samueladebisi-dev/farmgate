@@ -21,9 +21,9 @@ export function applyMigrations(db: Db, dir = MIGRATIONS_DIR): string[] {
   db.exec("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)");
   const done = new Set(db.prepare("SELECT name FROM schema_migrations").all().map((r) => (r as { name: string }).name));
   const applied: string[] = [];
-  for (const file of fs.readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()) {
+  for (const file of fs.readdirSync(/*turbopackIgnore: true*/ dir).filter((f) => f.endsWith(".sql")).sort()) {
     if (done.has(file)) continue;
-    const sql = fs.readFileSync(path.join(dir, file), "utf8");
+    const sql = fs.readFileSync(path.join(/*turbopackIgnore: true*/ dir, file), "utf8");
     db.transaction(() => {
       db.exec(sql);
       db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(file);
