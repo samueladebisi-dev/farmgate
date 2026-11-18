@@ -2,7 +2,7 @@
 
 Cooperative payment workflow prototype. **TEST NETWORK, PLAY MONEY ONLY.**
 
-This stage is the app foundation: database, money engine, payout state machine, login and role-based pages. It makes **no payment calls**. The working payment proof lives in [spike/](spike/) and will become the payment module later.
+The foundation (database, money engine, state machine, login) plus the real **buyer to cooperative payment** (quote, wallet consent, callback, reconciliation). Payouts to farmers are not built yet. The original payment proof lives in [spike/](spike/).
 
 ## Install
 
@@ -25,6 +25,7 @@ cp .env.example .env        (Mac/Linux)
 |---|---|
 | `COOP_WALLET_ADDRESS`, `BUYER_WALLET_ADDRESS`, `KEY_ID`, `PRIVATE_KEY_PATH` | Used by the payment spike only (and the future payment module). `private.key` stays in the repo folder and is never committed. |
 | `SESSION_SECRET` | Long random string that signs the login cookie. Generate one: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` |
+| `APP_BASE_URL` | Public URL of this app, default `http://localhost:3000`. The wallet sends the buyer back to `APP_BASE_URL/api/payments/callback`. Always use `localhost` (not `127.0.0.1`) in the browser so the login cookie matches. |
 | `DB_PATH` | SQLite file, default `./data/argus.db` |
 | `ORDER_TOTAL_MAJOR` | Demo order total in USD, default `100.00`. Must be a multiple of `10.00` (so kilos stay whole). Use `10.00` for a small test. |
 | `DEMO_*_PASSWORD` | Passwords for the demo users (play money only). |
@@ -55,6 +56,14 @@ Log in with usernames `buyer`, `operator`, `farmer-a`, `farmer-b`, `farmer-c` an
 
 > On Windows, run commands from a terminal whose path uses the same capital letters as the real folder (e.g. `C:\Users\HP\...`). A lower-case drive letter (`c:\...`, as Git Bash shows it) makes vitest fail with a confusing "Cannot read properties of undefined (reading 'config')" error.
 
+## Live payment run
+
+1. Set `ORDER_TOTAL_MAJOR=10.00` in `.env`, then `npm run db:reset` and `npm run dev`.
+2. Log in as `buyer`, click **Get quote**, check the amounts, click **Authorize payment in wallet**, approve in the wallet, and you are sent back to the buyer page.
+3. Log in as `operator` to see provider ids, the payment status and any exceptions. **Reconcile with provider** re-reads everything from the provider.
+
+The wallet needs nothing registered for the redirect (the spike used a localhost callback the same way). Provider tokens are kept server-side only, encrypted in the database with a key derived from `SESSION_SECRET`.
+
 ## Layout
 
 ```
@@ -63,6 +72,9 @@ lib/money.ts          integer-only money engine (+ tests)
 lib/payout-state.ts   the six payout states, one transition function, wording (+ tests)
 lib/access.ts         access-controlled reads (farmers only see their own data) (+ tests)
 lib/auth.ts           role guard used by every page and API route
+lib/payments.ts       quote, consent start, callback checks, reconciliation (+ tests with a mocked provider)
+lib/provider.ts       the only file that talks to the Open Payments SDK
+lib/reconcile-rules.ts  pure rules: exact, under, over, duplicate (+ tests)
 db/migrations/        plain SQL migrations
 scripts/              migrate, seed, reset
 spike/                the proven payment spike (reference, unchanged)

@@ -43,14 +43,14 @@ export function rejectConsent(state: PayoutState): { state: PayoutState; consent
 }
 
 /** One dictionary for all wording: dashboard (operator) words and plain farmer words. */
-export const STATE_WORDS: Record<PayoutState, { dashboard: string; farmer: string }> = {
-  CREATED: { dashboard: "Created", farmer: "Not started" },
-  AWAITING_CONSENT: { dashboard: "Awaiting consent", farmer: "Approval needed" },
-  SUBMITTED: { dashboard: "Submitted", farmer: "Processing" },
-  UNKNOWN: { dashboard: "Unknown: needs reconciliation", farmer: "Needs checking" },
-  FAILED: { dashboard: "Failed", farmer: "Failed" },
-  CONFIRMED: { dashboard: "Confirmed", farmer: "Paid" },
+export const STATE_WORDS: Record<PayoutState, { dashboard: string; farmer: string; buyer: string }> = {
+  CREATED: { dashboard: "Created", farmer: "Not started", buyer: "Quote ready, approval needed" },
+  AWAITING_CONSENT: { dashboard: "Awaiting consent", farmer: "Approval needed", buyer: "Waiting for your approval in the wallet" },
+  SUBMITTED: { dashboard: "Submitted", farmer: "Processing", buyer: "Processing" },
+  UNKNOWN: { dashboard: "Unknown: needs reconciliation", farmer: "Needs checking", buyer: "Needs checking" },
+  FAILED: { dashboard: "Failed", farmer: "Failed", buyer: "Failed, you can get a new quote" },
+  CONFIRMED: { dashboard: "Confirmed", farmer: "Paid", buyer: "Paid" },
 };
 
 /** Wording used when no payout exists yet for an allocation. */
-export const NO_PAYOUT_WORDS = { dashboard: "Not started", farmer: "Not started" };
+export const NO_PAYOUT_WORDS = { dashboard: "Not started", farmer: "Not started", buyer: "Not started" };

@@ -17,12 +17,12 @@ export function redact(value: unknown): unknown {
 export function audit(
   db: Db,
   e: { actor: string; action: string; entityType: string; entityId: string | number; metadata?: Record<string, unknown> },
-): void {
-  db.prepare("INSERT INTO audit_events (actor, action, entity_type, entity_id, metadata) VALUES (?,?,?,?,?)").run(
+): number {
+  return Number(db.prepare("INSERT INTO audit_events (actor, action, entity_type, entity_id, metadata) VALUES (?,?,?,?,?)").run(
     e.actor,
     e.action,
     e.entityType,
     String(e.entityId),
     JSON.stringify(redact(e.metadata ?? {})),
-  );
+  ).lastInsertRowid);
 }

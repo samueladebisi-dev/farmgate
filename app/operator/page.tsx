@@ -2,20 +2,27 @@ import { getAllocations, getOrderItems, listOrders } from "../../lib/access";
 import { requirePage } from "../../lib/auth";
 import { getDb } from "../../lib/db";
 import { formatMoney } from "../../lib/money";
+import { getDeps } from "../../lib/http";
+import { getFailureMessage, getPaymentView } from "../../lib/payments";
 import { money, Table, Td } from "../components/ui";
 
-export default async function OperatorPage() {
+export default async function OperatorPage({ searchParams }: { searchParams: Promise<{ notice?: string; ref?: string }> }) {
   const actor = await requirePage(["operator"]);
+  const sp = await searchParams;
   const db = getDb();
   const orders = listOrders(db, actor);
+  const deps = getDeps();
+  const notice = sp.notice === "error" ? getFailureMessage(db, actor, Number(sp.ref)) ?? "Something went wrong." : sp.notice === "reconciled" ? "Status checked with the payment provider." : undefined;
   return (
     <div className="flex flex-col gap-8">
       <h1 className="text-xl font-semibold">Operator dashboard</h1>
+      {notice && <p role="status" className="border-2 border-black px-3 py-2 text-sm">{notice}</p>}
       {orders.length === 0 && <p>No orders.</p>}
       {orders.map((o) => {
         const items = getOrderItems(db, actor, o.id);
         const allocs = getAllocations(db, actor, o.id);
         const { assetCode: code, assetScale: scale } = o.expected;
+        const pay = getPaymentView(deps, actor, o.id);
         const total = allocs.reduce((s, a) => s + a.net.minor, 0);
         return (
           <section key={o.id} className="flex flex-col gap-4">
@@ -71,6 +78,30 @@ export default async function OperatorPage() {
                 <Td />
               </tr>
             </Table>
+
+            <h3 className="font-semibold">Incoming payment (buyer to cooperative)</h3>
+            {pay.operator?.exception && (
+              <p className="border-2 border-red-700 px-3 py-2 text-sm whitespace-pre-line">
+                EXCEPTION {pay.operator.exception}. Details: {pay.operator.exceptionDetail}
+              </p>
+            )}
+            {pay.operator?.resources.length === 0 && <p className="text-sm">No payment started yet.</p>}
+            {pay.operator && pay.operator.resources.length > 0 && (
+              <Table head={["#", "Status", "Quote debit", "Receive", "Provider received", "Completed", "Sent", "Incoming payment id", "Quote id", "Outgoing payment id"]}>
+                {pay.operator.resources.map((r) => (
+                  <tr key={r.id}>
+                    <Td>{r.id}</Td><Td>{r.words}</Td><Td right>{r.debit ?? "-"}</Td><Td right>{r.receive ?? "-"}</Td>
+                    <Td right>{r.received ?? "-"}</Td><Td>{r.completed === null ? "-" : r.completed ? "yes" : "no"}</Td><Td right>{r.sent ?? "-"}</Td>
+                    <Td>{r.incomingId ?? "-"}</Td><Td>{r.quoteId ?? "-"}</Td><Td>{r.outgoingId ?? "-"}</Td>
+                  </tr>
+                ))}
+              </Table>
+            )}
+            {pay.canReconcile && (
+              <form method="POST" action={`/api/orders/${o.id}/reconcile`}>
+                <button className="border-2 border-black px-3 py-2 font-medium">Reconcile with provider</button>
+              </form>
+            )}
           </section>
         );
       })}
